@@ -1,0 +1,51 @@
+
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Build Release x86
+        run: |
+          msbuild "Win32\rFactorSharedMemoryMap.sln" /m /t:Rebuild /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0 /verbosity:minimal
+
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = "Win32\Release\rFactorSharedMemoryMap.dll"
+          if (!(Test-Path $dll)) {
+            throw "DLL not found: $dll"
+          }
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          files: Win32/Release/rFactorSharedMemoryMap.dll
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          overwrite_files: true
