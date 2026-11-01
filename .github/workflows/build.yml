@@ -28,6 +28,28 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v3
 
+      - name: Apply Windows SDK packing compatibility fix
+        shell: pwsh
+        run: |
+          $project = 'Win32\rFactorSharedMemoryMap.vcxproj'
+          $xml = [System.IO.File]::ReadAllText($project)
+          $old = '<StructMemberAlignment>4Bytes</StructMemberAlignment>'
+          if (-not $xml.Contains($old)) { throw 'Legacy packing setting not found in vcxproj' }
+          $xml = $xml.Replace($old, '<StructMemberAlignment>Default</StructMemberAlignment>')
+          [System.IO.File]::WriteAllText($project, $xml, [System.Text.UTF8Encoding]::new($false))
+
+          $header = 'Include\InternalsPlugin.hpp'
+          $encoding = [System.Text.Encoding]::Latin1
+          $source = $encoding.GetString([System.IO.File]::ReadAllBytes($header))
+          $include = '#include "RFPluginObjects.hpp"'
+          $endif = '#endif // _INTERNALS_PLUGIN_HPP_'
+          if (-not $source.Contains($include) -or -not $source.Contains($endif)) {
+            throw 'Expected declarations not found in InternalsPlugin.hpp'
+          }
+          $source = $source.Replace($include, $include + "`r`n#pragma pack(push, 4)")
+          $source = $source.Replace($endif, "#pragma pack(pop)`r`n`r`n" + $endif)
+          [System.IO.File]::WriteAllBytes($header, $encoding.GetBytes($source))
+
       - name: Build Release x86
         run: |
           msbuild "Win32\rFactorSharedMemoryMap.sln" /m /t:Rebuild /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0 /verbosity:minimal
